@@ -438,4 +438,40 @@
   )
 )
 
-
+;; Redeem loyalty points for additional fee discount
+(define-public (redeem-loyalty-points (points-to-redeem uint) (discount-type (string-ascii 10)))
+  (let (
+    (stats (default-to 
+            { successful-swaps: u0, last-swap-height: u0, consecutive-months: u0, loyalty-points: u0, last-point-claim: u0 } 
+            (map-get? user-swap-stats { user-id: tx-sender })))
+    (available-points (get loyalty-points stats))
+    (min-redemption-period u1440) ;; Minimum blocks between redemptions (approximately 10 days)
+    (redemption-multiplier (if (is-eq discount-type "premium") u12 u10)) ;; Premium redemptions give 20% more value
+    (effective-discount (* points-to-redeem redemption-multiplier))
+    (last-claim-height (get last-point-claim stats))
+  )
+    (begin
+      (asserts! (not (var-get is-paused)) (err ERR_PAUSED))
+      (asserts! (<= points-to-redeem available-points) (err ERR_INVALID_PARAMS))
+      (asserts! (>= points-to-redeem u100) (err ERR_INVALID_PARAMS))
+      (asserts! (or (is-eq last-claim-height u0) (>= (- block-height last-claim-height) min-redemption-period)) (err ERR_INVALID_PARAMS))
+      
+      ;; Log the redemption event
+      (print {
+        event: "loyalty-points-redeemed",
+        user: tx-sender,
+        points-redeemed: points-to-redeem,
+        discount-type: discount-type,
+        effective-discount: effective-discount
+      })
+      
+      (ok (map-set user-swap-stats
+        { user-id: tx-sender }
+        (merge stats {
+          loyalty-points: (- available-points points-to-redeem),
+          last-point-claim: block-height
+        })
+      ))
+    )
+  )
+)
